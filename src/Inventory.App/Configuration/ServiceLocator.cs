@@ -16,21 +16,23 @@ using System;
 using System.Collections.Concurrent;
 
 using Windows.UI.ViewManagement;
-
+using Inventory.Data;
 using Microsoft.Extensions.DependencyInjection;
 
 using Inventory.Services;
 using Inventory.ViewModels;
+using RuhRoh;
+using RuhRoh.Extensions.Microsoft.DependencyInjection;
 
 namespace Inventory
 {
     public class ServiceLocator : IDisposable
     {
-        static private readonly ConcurrentDictionary<int, ServiceLocator> _serviceLocators = new ConcurrentDictionary<int, ServiceLocator>();
+        private static readonly ConcurrentDictionary<int, ServiceLocator> _serviceLocators = new ConcurrentDictionary<int, ServiceLocator>();
 
-        static private ServiceProvider _rootServiceProvider = null;
+        private static ServiceProvider _rootServiceProvider = null;
 
-        static public void Configure(IServiceCollection serviceCollection)
+        public static void Configure(IServiceCollection serviceCollection)
         {
             serviceCollection.AddSingleton<ISettingsService, SettingsService>();
             serviceCollection.AddSingleton<IDataServiceFactory, DataServiceFactory>();
@@ -76,10 +78,35 @@ namespace Inventory
             serviceCollection.AddTransient<ValidateConnectionViewModel>();
             serviceCollection.AddTransient<CreateDatabaseViewModel>();
 
+            AddSomeChaos(serviceCollection);
+
             _rootServiceProvider = serviceCollection.BuildServiceProvider();
         }
 
-        static public ServiceLocator Current
+        private static void AddSomeChaos(IServiceCollection serviceCollection)
+        {
+            // Affect Windows Hello when trying to sign in.
+            serviceCollection.AffectSingleton<ILoginService, LoginService>()
+                .WhenCalling(x => x.SignInWithWindowsHelloAsync())
+                .Throw<Exception>()
+                .AfterNCalls(2);
+
+            // Simulate an unreliable connection to the customer service,
+            // which might be backed by a CRM system under extreme load.
+            serviceCollection.AffectSingleton<ICustomerService, CustomerService>()
+                .WhenCalling(x => x.GetCustomersAsync(With.Any<DataRequest<Customer>>()))
+                .SlowItDownBy(TimeSpan.FromSeconds(10))
+                .EveryNCalls(2);
+
+            // Simulate the log service running out of disk space.
+            serviceCollection.AffectSingleton<ILogService, LogService>()
+                .WhenCalling(x => x.WriteAsync(With.Any<LogType>(),
+                    With.Any<string>(), With.Any<string>(), With.Any<string>(), With.Any<string>()))
+                .Throw<System.IO.IOException>()
+                .AfterNCalls(3);
+        }
+
+        public static ServiceLocator Current
         {
             get
             {
@@ -88,7 +115,7 @@ namespace Inventory
             }
         }
 
-        static public void DisposeCurrent()
+        public static void DisposeCurrent()
         {
             int currentViewId = ApplicationView.GetForCurrentView().Id;
             if (_serviceLocators.TryRemove(currentViewId, out ServiceLocator current))

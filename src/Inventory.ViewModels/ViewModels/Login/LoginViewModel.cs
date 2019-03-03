@@ -126,13 +126,25 @@ namespace Inventory.ViewModels
         public async void LoginWithWindowHello()
         {
             IsBusy = true;
-            var result = await LoginService.SignInWithWindowsHelloAsync();
-            if (result.IsOk)
+
+            // Wrap the Windows Hello call in a try-catch block to deal with
+            // unhandled exceptions (or chaotic behavior)
+            try
             {
-                EnterApplication();
-                return;
+                var result = await LoginService.SignInWithWindowsHelloAsync();
+                if (result.IsOk)
+                {
+                    EnterApplication();
+                    return;
+                }
+
+                await DialogService.ShowAsync(result.Message, result.Description);
             }
-            await DialogService.ShowAsync(result.Message, result.Description);
+            catch
+            {
+                await DialogService.ShowAsync("Windows Hello", "Windows Hello is currently unavailable.");
+            }
+
             IsBusy = false;
         }
 
